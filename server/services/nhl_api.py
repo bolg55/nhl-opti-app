@@ -1,6 +1,7 @@
 import time
 import unicodedata
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -139,7 +140,8 @@ def fetch_standings(force_refresh: bool = False) -> pd.DataFrame:
 
 def fetch_weekly_schedule(start_date=None):
     if start_date is None:
-        start_date = date.today()
+        # Use Eastern Time to align with NHL schedule dates
+        start_date = datetime.now(ZoneInfo("America/New_York")).date()
     elif isinstance(start_date, str):
         start_date = date.fromisoformat(start_date)
 
