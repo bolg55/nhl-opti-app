@@ -24,6 +24,7 @@ def calculate_projections(
         * df["multiplier"]
     )
     df["player_key"] = df["player_name"].str.strip().str.upper()
+    df["position_key"] = df["position"]
     return df
 
 
@@ -95,10 +96,11 @@ def build_optimizer_input(
     )
     salary_df["player_key"] = salary_df["Player"].str.strip().str.upper()
 
-    # 7. Merge stats with salary (match on uppercase name + team)
+    # 7. Merge stats with salary (match on uppercase name + team + position)
     proj_cols = [
         "player_key",
         "team",
+        "position_key",
         "games_this_week",
         "multiplier",
         "proj_fantasy_pts",
@@ -107,8 +109,8 @@ def build_optimizer_input(
     ]
     merged = salary_df.merge(
         proj_df[proj_cols],
-        left_on=["player_key", "Team"],
-        right_on=["player_key", "team"],
+        left_on=["player_key", "Team", "Position"],
+        right_on=["player_key", "team", "position_key"],
         how="left",
     )
 
@@ -118,21 +120,21 @@ def build_optimizer_input(
         merged["last_name_key"] = merged["Player"].apply(_last_name_key)
         proj_df["last_name_key"] = proj_df["player_name"].apply(_last_name_key)
 
-        api_counts = proj_df.groupby(["last_name_key", "team"]).size()
+        api_counts = proj_df.groupby(["last_name_key", "team", "position"]).size()
         unique_api = set(api_counts[api_counts == 1].index)
 
-        salary_counts = merged.groupby(["last_name_key", "Team"]).size()
+        salary_counts = merged.groupby(["last_name_key", "Team", "Position"]).size()
         unique_salary = set(salary_counts[salary_counts == 1].index)
 
         fb_lookup = {}
         for _, row in proj_df.iterrows():
-            key = (row["last_name_key"], row["team"])
+            key = (row["last_name_key"], row["team"], row["position"])
             if key in unique_api:
                 fb_lookup[key] = row
 
         for idx in unmatched_idx:
             row = merged.loc[idx]
-            key = (row["last_name_key"], row["Team"])
+            key = (row["last_name_key"], row["Team"], row["Position"])
             if key in unique_api and key in unique_salary and key in fb_lookup:
                 api_row = fb_lookup[key]
                 merged.loc[idx, "games_this_week"] = api_row["games_this_week"]
@@ -142,6 +144,9 @@ def build_optimizer_input(
                 merged.loc[idx, "assists_per_game"] = api_row["assists_per_game"]
 
         merged.drop(columns=["last_name_key"], inplace=True)
+
+    # Drop extra merge columns
+    merged.drop(columns=["team", "position_key"], inplace=True, errors="ignore")
 
     merged["proj_fantasy_pts"] = merged["proj_fantasy_pts"].fillna(0)
     merged["games_this_week"] = merged["games_this_week"].fillna(0).astype(int)
