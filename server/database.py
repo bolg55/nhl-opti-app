@@ -21,19 +21,7 @@ def get_write_lock() -> threading.Lock:
 
 def init_db():
     """Create tables and seed defaults on startup."""
-    import stat
-    print(f"[init_db] DB_DIR={DB_DIR!r}, DB_PATH={DB_PATH!r}", flush=True)
-    print(f"[init_db] DB_DIR exists before makedirs: {os.path.exists(DB_DIR)}", flush=True)
     os.makedirs(DB_DIR, exist_ok=True)
-    print(f"[init_db] DB_DIR exists after makedirs: {os.path.exists(DB_DIR)}", flush=True)
-    try:
-        st = os.stat(DB_DIR)
-        print(f"[init_db] DB_DIR permissions: {stat.filemode(st.st_mode)}, uid={st.st_uid}, gid={st.st_gid}", flush=True)
-        print(f"[init_db] DB_DIR writable: {os.access(DB_DIR, os.W_OK)}", flush=True)
-        print(f"[init_db] DB_DIR contents: {os.listdir(DB_DIR)}", flush=True)
-    except Exception as e:
-        print(f"[init_db] Error checking DB_DIR: {e}", flush=True)
-    print(f"[init_db] Current user uid={os.getuid()}, gid={os.getgid()}", flush=True)
     conn = get_db()
     conn.execute("""CREATE TABLE IF NOT EXISTS cache_metadata (
         table_name TEXT PRIMARY KEY,

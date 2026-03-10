@@ -19,9 +19,7 @@ COPY server/ server/
 COPY seed_data/ seed_data/
 COPY --from=frontend /app/dist dist/
 
-RUN useradd -r -s /bin/false appuser && \
-    mkdir -p /app/data && \
-    chown appuser /app/data
+RUN useradd -r -s /bin/false appuser
 USER appuser
 
 ENV PORT=8000
