@@ -1,6 +1,8 @@
 # NHL Fantasy Optimizer
 
 Weekly salary-cap fantasy hockey lineup optimizer. Wraps the existing PuLP/pandas optimizer in a FastAPI + React web app.
+<img width="1189" height="1297" alt="image" src="https://github.com/user-attachments/assets/8f1bd522-a4b3-42ce-be4a-8bb05c77f349" />
+
 
 ## Local Development
 
