@@ -1,6 +1,6 @@
 import time
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -27,13 +27,15 @@ def is_cache_fresh(table_name: str) -> bool:
     if row is None:
         return False
     updated = datetime.fromisoformat(row[0])
-    return (datetime.now() - updated).total_seconds() < CACHE_HOURS * 3600
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - updated).total_seconds() < CACHE_HOURS * 3600
 
 
 def set_cache_timestamp(conn, table_name: str):
     conn.execute(
         "INSERT OR REPLACE INTO cache_metadata (table_name, updated_at) VALUES (?, ?)",
-        (table_name, datetime.now().isoformat()),
+        (table_name, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
 

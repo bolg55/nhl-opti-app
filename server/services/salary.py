@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 
 import pandas as pd
@@ -42,7 +42,7 @@ def upload_salary_csv(csv_content: str) -> int:
                 )
             conn.execute(
                 "INSERT OR REPLACE INTO cache_metadata (table_name, updated_at) VALUES (?, ?)",
-                ("salary_data", datetime.now().isoformat()),
+                ("salary_data", datetime.now(timezone.utc).isoformat()),
             )
             conn.commit()
         finally:
