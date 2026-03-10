@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react"
-import { ChevronDown, ChevronUp, Save } from "lucide-react"
+import { CalendarIcon, ChevronDown, ChevronUp, Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { getSettings, updateSettings } from "@/lib/api"
 import type { Settings } from "@/lib/types"
 
@@ -113,11 +115,32 @@ export function ConstraintsPanel({
           />
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs">Start Date</Label>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => onStartDateChange(e.target.value)}
-            />
+            <Popover>
+              <PopoverTrigger
+                className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+              >
+                {startDate
+                  ? new Date(startDate + "T00:00:00").toLocaleDateString(
+                      "en-US",
+                      { month: "short", day: "numeric", year: "numeric" }
+                    )
+                  : "Pick a date"}
+                <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={startDate ? new Date(startDate + "T00:00:00") : undefined}
+                  onSelect={(date) => {
+                    if (date) {
+                      const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+                      onStartDateChange(iso)
+                    }
+                  }}
+                  defaultMonth={startDate ? new Date(startDate + "T00:00:00") : undefined}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="col-span-full flex items-center justify-end gap-2">
             {saved && (

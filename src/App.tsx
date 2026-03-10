@@ -19,9 +19,10 @@ export function App() {
   const [excludedPlayers, setExcludedPlayers] = useState<Set<string>>(
     new Set()
   )
-  const [startDate, setStartDate] = useState(
-    new Date().toISOString().split("T")[0]
-  )
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  })
   const [salaryKey, setSalaryKey] = useState(0)
   const [dataVersion, setDataVersion] = useState(0)
   const [apiStatus, setApiStatus] = useState<
