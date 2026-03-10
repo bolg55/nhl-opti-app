@@ -9,7 +9,6 @@ import { SalaryUpload } from "@/components/salary-upload"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { AuthError, checkAuth, logout, refreshData } from "@/lib/api"
-import { playerKey } from "@/lib/types"
 
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
