@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table"
 import { optimize } from "@/lib/api"
 import type { LineupResult } from "@/lib/types"
+import { playerKey } from "@/lib/types"
 
 export function LineupDisplay({
   lockedPlayers,
@@ -23,8 +24,8 @@ export function LineupDisplay({
 }: {
   lockedPlayers: Set<string>
   excludedPlayers: Set<string>
-  onToggleLock: (name: string) => void
-  onToggleExclude: (name: string) => void
+  onToggleLock: (key: string) => void
+  onToggleExclude: (key: string) => void
   startDate: string
 }) {
   const [result, setResult] = useState<LineupResult | null>(null)
@@ -99,24 +100,25 @@ export function LineupDisplay({
           </TableHeader>
           <TableBody>
             {result.players.map((player) => {
-              const isLocked = lockedPlayers.has(player.name)
-              const isExcluded = excludedPlayers.has(player.name)
+              const pk = playerKey(player)
+              const isLocked = lockedPlayers.has(pk)
+              const isExcluded = excludedPlayers.has(pk)
               const isGoalie = player.position === "G"
               return (
                 <TableRow
-                  key={player.name}
+                  key={pk}
                   className={isGoalie ? "text-muted-foreground" : ""}
                 >
                   <TableCell className="flex gap-1 px-2">
                     <button
-                      onClick={() => onToggleLock(player.name)}
+                      onClick={() => onToggleLock(pk)}
                       className={`p-0.5 ${isLocked ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
                       title={isLocked ? "Unlock" : "Lock"}
                     >
                       <Lock className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={() => onToggleExclude(player.name)}
+                      onClick={() => onToggleExclude(pk)}
                       className={`p-0.5 ${isExcluded ? "text-destructive" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
                       title={isExcluded ? "Include" : "Exclude"}
                     >

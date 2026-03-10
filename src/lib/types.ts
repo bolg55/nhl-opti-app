@@ -8,6 +8,10 @@ export interface Player {
   injured: boolean
 }
 
+export function playerKey(p: { name: string; team: string; position: string }): string {
+  return `${p.name}|${p.team}|${p.position}`
+}
+
 export interface LineupResult {
   players: Player[]
   totalPoints: number

@@ -9,6 +9,7 @@ import { SalaryUpload } from "@/components/salary-upload"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { AuthError, checkAuth, logout, refreshData } from "@/lib/api"
+import { playerKey } from "@/lib/types"
 
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
@@ -23,6 +24,7 @@ export function App() {
     new Date().toISOString().split("T")[0]
   )
   const [salaryKey, setSalaryKey] = useState(0)
+  const [dataVersion, setDataVersion] = useState(0)
   const [apiStatus, setApiStatus] = useState<
     "ok" | "error" | "checking"
   >("checking")
@@ -49,30 +51,30 @@ export function App() {
     return () => clearInterval(id)
   }, [authed])
 
-  const toggleLock = useCallback((name: string) => {
+  const toggleLock = useCallback((key: string) => {
     setLockedPlayers((prev) => {
       const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
     setExcludedPlayers((prev) => {
       const next = new Set(prev)
-      next.delete(name)
+      next.delete(key)
       return next
     })
   }, [])
 
-  const toggleExclude = useCallback((name: string) => {
+  const toggleExclude = useCallback((key: string) => {
     setExcludedPlayers((prev) => {
       const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
     setLockedPlayers((prev) => {
       const next = new Set(prev)
-      next.delete(name)
+      next.delete(key)
       return next
     })
   }, [])
@@ -81,6 +83,7 @@ export function App() {
     setRefreshing(true)
     try {
       await refreshData()
+      setDataVersion((v) => v + 1)
     } catch (e) {
       console.error(e)
     } finally {
@@ -167,7 +170,10 @@ export function App() {
       <main className="flex flex-col gap-6 p-4">
         <SalaryUpload
           key={salaryKey}
-          onUploaded={() => setSalaryKey((k) => k + 1)}
+          onUploaded={() => {
+            setSalaryKey((k) => k + 1)
+            setDataVersion((v) => v + 1)
+          }}
         />
 
         <LineupDisplay
@@ -183,6 +189,7 @@ export function App() {
           excludedPlayers={excludedPlayers}
           onToggleLock={toggleLock}
           onToggleExclude={toggleExclude}
+          dataVersion={dataVersion}
         />
       </main>
     </div>

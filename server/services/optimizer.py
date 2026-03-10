@@ -20,6 +20,15 @@ def select_best_team(
     locked_keys = {p.strip().upper() for p in locked_players}
     excluded_keys = {p.strip().upper() for p in excluded_players}
 
+    # Build composite key (name|team|position) for each row
+    df["_composite_key"] = (
+        df["Player"].str.strip().str.upper()
+        + "|"
+        + df["Team"]
+        + "|"
+        + df["Position"]
+    )
+
     prob = pulp.LpProblem("FantasyHockeyTeam", pulp.LpMaximize)
     player_vars = pulp.LpVariable.dicts("player", df.index, cat="Binary")
 
@@ -58,13 +67,13 @@ def select_best_team(
 
     # Locked players must be selected
     for i in df.index:
-        key = df.loc[i, "player_key"]
+        key = df.loc[i, "_composite_key"]
         if key in locked_keys:
             prob += player_vars[i] == 1
 
     # Excluded players cannot be selected
     for i in df.index:
-        key = df.loc[i, "player_key"]
+        key = df.loc[i, "_composite_key"]
         if key in excluded_keys:
             prob += player_vars[i] == 0
 

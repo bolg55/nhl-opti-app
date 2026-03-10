@@ -13,17 +13,20 @@ import {
 } from "@/components/ui/table"
 import { getPlayers } from "@/lib/api"
 import type { Player } from "@/lib/types"
+import { playerKey } from "@/lib/types"
 
 export function PlayerBrowser({
   lockedPlayers,
   excludedPlayers,
   onToggleLock,
   onToggleExclude,
+  dataVersion,
 }: {
   lockedPlayers: Set<string>
   excludedPlayers: Set<string>
-  onToggleLock: (name: string) => void
-  onToggleExclude: (name: string) => void
+  onToggleLock: (key: string) => void
+  onToggleExclude: (key: string) => void
+  dataVersion: number
 }) {
   const [open, setOpen] = useState(false)
   const [players, setPlayers] = useState<Player[]>([])
@@ -32,14 +35,13 @@ export function PlayerBrowser({
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (open && players.length === 0) {
-      setLoading(true)
-      getPlayers()
-        .then(setPlayers)
-        .catch(console.error)
-        .finally(() => setLoading(false))
-    }
-  }, [open, players.length])
+    if (!open) return
+    setLoading(true)
+    getPlayers()
+      .then(setPlayers)
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [open, dataVersion])
 
   const filtered = players.filter((p) => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) {
@@ -110,19 +112,20 @@ export function PlayerBrowser({
                 </TableHeader>
                 <TableBody>
                   {filtered.slice(0, 100).map((player) => {
-                    const isLocked = lockedPlayers.has(player.name)
-                    const isExcluded = excludedPlayers.has(player.name)
+                    const pk = playerKey(player)
+                    const isLocked = lockedPlayers.has(pk)
+                    const isExcluded = excludedPlayers.has(pk)
                     return (
-                      <TableRow key={player.name + player.team}>
+                      <TableRow key={pk}>
                         <TableCell className="flex gap-1 px-2">
                           <button
-                            onClick={() => onToggleLock(player.name)}
+                            onClick={() => onToggleLock(pk)}
                             className={`p-0.5 ${isLocked ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
                           >
                             <Lock className="h-3.5 w-3.5" />
                           </button>
                           <button
-                            onClick={() => onToggleExclude(player.name)}
+                            onClick={() => onToggleExclude(pk)}
                             className={`p-0.5 ${isExcluded ? "text-destructive" : "text-muted-foreground/40 hover:text-muted-foreground"}`}
                           >
                             <X className="h-3.5 w-3.5" />

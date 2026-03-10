@@ -76,7 +76,15 @@ export function SalaryUpload({
           </Button>
         </div>
         {message && (
-          <p className="text-xs text-muted-foreground">{message}</p>
+          <p
+            className={`text-xs font-medium ${
+              message.startsWith("Uploaded")
+                ? "text-green-600 dark:text-green-400"
+                : "text-destructive"
+            }`}
+          >
+            {message}
+          </p>
         )}
       </CardContent>
     </Card>
