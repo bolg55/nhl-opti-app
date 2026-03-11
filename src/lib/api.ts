@@ -2,7 +2,6 @@ import type {
   AuthResponse,
   LineupResult,
   Player,
-  SalaryStatus,
   Settings,
 } from "./types"
 
@@ -73,23 +72,18 @@ export async function updateSettings(
   })
 }
 
-export async function uploadSalary(file: File): Promise<{ count: number }> {
-  const formData = new FormData()
-  formData.append("file", file)
-  return request("/api/salary/upload", {
-    method: "POST",
-    body: formData,
-  })
-}
-
-export async function getSalaryStatus(): Promise<SalaryStatus> {
-  return request("/api/salary/status")
-}
-
 export async function refreshData(): Promise<{ message: string }> {
   return request("/api/refresh-data", { method: "POST" })
 }
 
 export async function getPlayers(): Promise<Player[]> {
   return request("/api/players")
+}
+
+export async function triggerSalaryScrape(): Promise<{ message: string }> {
+  return request("/api/admin/scrape-players", { method: "POST" })
+}
+
+export async function triggerInjuryScrape(): Promise<{ message: string }> {
+  return request("/api/admin/scrape-injuries", { method: "POST" })
 }

@@ -30,11 +30,6 @@ export interface Settings {
   min_games_played: number
 }
 
-export interface SalaryStatus {
-  count: number
-  lastUpdated: string | null
-}
-
 export interface AuthResponse {
   authenticated: boolean
 }
