@@ -7,6 +7,7 @@ MOCK_PLAYERS = [
     {"name": "Player F4", "team": "MTL", "position": "F", "pv": 5.5, "proj_fantasy_pts": 7.0, "games_this_week": 3, "injured": False},
     {"name": "Player F5", "team": "VAN", "position": "F", "pv": 5.0, "proj_fantasy_pts": 6.0, "games_this_week": 3, "injured": False},
     {"name": "Player F6", "team": "WPG", "position": "F", "pv": 4.5, "proj_fantasy_pts": 5.0, "games_this_week": 3, "injured": False},
+    {"name": "Player F7", "team": "OTT", "position": "F", "pv": 4.0, "proj_fantasy_pts": 4.0, "games_this_week": 3, "injured": False},
     {"name": "Player D1", "team": "EDM", "position": "D", "pv": 7.0, "proj_fantasy_pts": 6.0, "games_this_week": 3, "injured": False},
     {"name": "Player D2", "team": "CGY", "position": "D", "pv": 6.0, "proj_fantasy_pts": 5.0, "games_this_week": 3, "injured": False},
     {"name": "Player D3", "team": "TOR", "position": "D", "pv": 5.0, "proj_fantasy_pts": 4.0, "games_this_week": 3, "injured": False},
