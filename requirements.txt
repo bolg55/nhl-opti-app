@@ -2,8 +2,4 @@ fastapi
 uvicorn[standard]
 python-multipart
 pulp
-pandas
-numpy
 requests
-beautifulsoup4
-lxml

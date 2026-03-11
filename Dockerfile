@@ -16,7 +16,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server/ server/
-COPY seed_data/ seed_data/
 COPY --from=frontend /app/dist dist/
 
 RUN useradd -r -s /bin/false appuser
