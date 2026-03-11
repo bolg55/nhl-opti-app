@@ -38,3 +38,4 @@ data/
 # MCP
 .playwright-mcp
 skills-lock.json
+.env
