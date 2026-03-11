@@ -1,42 +1,32 @@
 import { useCallback, useEffect, useState } from "react"
 import { LogOut, Moon, RefreshCw, Sun } from "lucide-react"
 
+import { AdminControls } from "@/components/admin-controls"
 import { ConstraintsPanel } from "@/components/constraints-panel"
 import { LineupDisplay } from "@/components/lineup-display"
 import { LoginForm } from "@/components/login-form"
 import { PlayerBrowser } from "@/components/player-browser"
-import { SalaryUpload } from "@/components/salary-upload"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
-import { AuthError, checkAuth, logout, refreshData } from "@/lib/api"
+import { checkAuth, logout, refreshData } from "@/lib/api"
 
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [lockedPlayers, setLockedPlayers] = useState<Set<string>>(
-    new Set()
-  )
-  const [excludedPlayers, setExcludedPlayers] = useState<Set<string>>(
-    new Set()
-  )
+  const [lockedPlayers, setLockedPlayers] = useState<Set<string>>(new Set())
+  const [excludedPlayers, setExcludedPlayers] = useState<Set<string>>(new Set())
   const [startDate, setStartDate] = useState(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
   })
-  const [salaryKey, setSalaryKey] = useState(0)
   const [dataVersion, setDataVersion] = useState(0)
-  const [apiStatus, setApiStatus] = useState<
-    "ok" | "error" | "checking"
-  >("checking")
+  const [apiStatus, setApiStatus] = useState<"ok" | "error" | "checking">("checking")
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
     checkAuth()
       .then(() => setAuthed(true))
-      .catch((e) => {
-        if (e instanceof AuthError) setAuthed(false)
-        else setAuthed(false)
-      })
+      .catch(() => setAuthed(false))
   }, [])
 
   useEffect(() => {
@@ -139,9 +129,7 @@ export function App() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() =>
-              setTheme(theme === "dark" ? "light" : "dark")
-            }
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             title="Toggle theme"
           >
             {theme === "dark" ? (
@@ -168,13 +156,7 @@ export function App() {
       />
 
       <main className="flex flex-col gap-6 p-4">
-        <SalaryUpload
-          key={salaryKey}
-          onUploaded={() => {
-            setSalaryKey((k) => k + 1)
-            setDataVersion((v) => v + 1)
-          }}
-        />
+        <AdminControls onRefreshed={() => setDataVersion((v) => v + 1)} />
 
         <LineupDisplay
           lockedPlayers={lockedPlayers}
