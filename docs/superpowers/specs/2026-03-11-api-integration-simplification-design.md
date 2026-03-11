@@ -9,6 +9,27 @@ The app currently relies on three separate data sources with fragile integration
 
 A new unified salary API (`nhl-salary-api`) has been built that provides players with salary and injury data, keyed by NHL player ID. This enables replacing sources 1 and 2 with a single API call and joining on stable IDs instead of fuzzy name matching.
 
+## Salary API Data Format
+
+Verified from live responses:
+
+```json
+{
+  "nhlId": 8477934,
+  "name": "Leon Draisaitl",
+  "team": "EDM",
+  "position": "C",
+  "salary": 14000000,
+  "injury": null
+}
+```
+
+- **`team`**: 3-letter abbreviations matching NHL API (e.g., `"EDM"`, `"DAL"`)
+- **`position`**: NHL-specific codes: `"C"`, `"L"`, `"R"`, `"D"`, `"G"` — must normalize `C/L/R → "F"` for the optimizer
+- **`salary`**: Raw dollars (e.g., `14000000`). The current optimizer uses millions (e.g., `14.0`). Convert: `salary / 1_000_000`
+- **`injury`**: `null` = healthy. Non-null = `{status, description}` where status is "Day to Day", "Week to Week", "Season", etc. All non-null injuries zero out projected points (same behavior as current CBS scraper, which doesn't distinguish statuses)
+- **`GET /injuries` endpoint**: Not used directly. Injury data is consumed via the `injury` field on `GET /players`. The admin `POST /admin/scrape/injuries` triggers the API to update its injury data, which then appears in subsequent `GET /players` responses.
+
 ## Design
 
 ### Data Flow (Before)
@@ -33,7 +54,11 @@ NHL Schedule API          →  weekly games
                                     ↓
                           Join on playerId == nhlId
                                     ↓
+                          Normalize positions (C/L/R → F), convert salary to millions
+                                    ↓
                           Project points, apply schedule multipliers
+                                    ↓
+                          Append synthetic goalie rows (team-level, salary=0)
                                     ↓
                           PuLP optimizer → lineup
 ```
@@ -50,6 +75,8 @@ NHL Schedule API          →  weekly games
 | Name-matching logic | In `server/services/projections.py` | Replaced by ID-based join |
 | BeautifulSoup/lxml deps | `requirements.txt` | No longer scraping HTML |
 | Pandas dependency | All service files | Replaced by plain dicts/lists |
+| Team name mappings | `FULL_NAME_TO_ABBREV`, `CBS_TEAM_TO_ABBREV` in `constants.py` | No longer needed — both APIs use 3-letter codes |
+| numpy dependency | `requirements.txt` | Only used in `nhl_api.py`; PuLP does not depend on it |
 
 ### What Gets Added
 
@@ -73,6 +100,10 @@ def trigger_injury_scrape() -> dict:
 
 **Auth:** Bearer token from `NHL_SALARY_API_TOKEN` env var.
 **Base URL:** From `NHL_SALARY_API_URL` env var.
+
+#### New Module: `server/cache.py`
+
+Simple in-memory cache shared across services. See "In-Memory Cache Design" section.
 
 #### New Endpoints
 
@@ -99,23 +130,36 @@ Two buttons added to the UI (settings area or a dedicated admin section):
 
 #### `server/services/nhl_api.py`
 
-- Remove SQLite read/write, replace with in-memory dict cache + TTL
-- Remove pandas — return plain dicts/lists
+- Remove SQLite read/write, replace with in-memory cache (from `server/cache.py`)
+- Remove pandas and numpy — return plain lists of dicts
 - Functions stay the same: `fetch_all_player_stats()`, `fetch_standings()`, `fetch_weekly_schedule()`, `calculate_multipliers()`
-- Stats keyed by `playerId` for easy join
+- `fetch_all_player_stats()` returns list of dicts with `playerId` as a key field for joining
 
 #### `server/services/projections.py`
 
-- Remove CBS injury import
-- Remove name-matching logic (uppercase normalization, last-name fallback)
-- Join salary API data with NHL stats on `nhlId == playerId`
-- If player has `injury` field set (not null), zero out projected points
-- Use plain dicts instead of DataFrames
+- Remove CBS injury import and salary import
+- Remove all name-matching logic (uppercase normalization, last-name fallback, `_last_name_key()`)
+- Fetch salary API data via `salary_api.fetch_players()`
+- Build a lookup dict: `{nhlId: {salary, injury, position, ...}}` from salary API
+- Join with NHL stats on `nhlId == playerId`
+- **Position normalization**: Map `C/L/R → "F"`, keep `D` and `G` as-is
+- **Salary conversion**: `salary_api_salary / 1_000_000` to match existing `pv` scale (e.g., `14000000 → 14.0`)
+- **Injury handling**: If player's `injury` field is not null, zero out projected points
+- **Goalie rows**: Still synthetic team-aggregate rows (e.g., `"EDM Goalie"`) with `pv=0`, appended after the join. These don't exist in the salary API and are generated from standings + schedule data, same as today.
+- Use plain dicts/lists instead of DataFrames
 
 #### `server/services/optimizer.py`
 
 - Replace DataFrame operations with plain dict/list operations
 - PuLP logic stays the same (variable creation, constraints, solve)
+- `pv` field continues to hold salary in millions (no change to constraint logic)
+
+#### `server/constants.py`
+
+- Remove `FULL_NAME_TO_ABBREV` and `CBS_TEAM_TO_ABBREV` dicts
+- Keep `ALL_TEAMS` (regenerate as a simple list of 32 team codes)
+- Keep `DEFAULT_SETTINGS` — update `max_cost` to stay at `70.5` (millions, matching the converted salary scale)
+- Keep `CACHE_HOURS`, `NHL_API_BASE`, `SEASON_INT`
 
 #### `server/routes/optimizer.py`
 
@@ -153,8 +197,8 @@ Optimizer settings move from SQLite to a JSON file at `{DATA_DIR}/optimizer_sett
 
 ```json
 {
-  "max_cost": 70500000,
-  "min_cost_pct": 0.90,
+  "max_cost": 70.5,
+  "min_cost_pct": 90,
   "num_forwards": 6,
   "num_defensemen": 4,
   "num_goalies": 2,
@@ -163,11 +207,11 @@ Optimizer settings move from SQLite to a JSON file at `{DATA_DIR}/optimizer_sett
 }
 ```
 
-If the file doesn't exist, defaults are used. `GET /api/settings` reads it, `PUT /api/settings` writes it.
+Values match current `DEFAULT_SETTINGS` in `constants.py`. If the file doesn't exist, defaults are used. `GET /api/settings` reads it, `PUT /api/settings` writes it. Single-user app, so no concurrency concerns.
 
 ### In-Memory Cache Design
 
-Simple Python dict with timestamps, replacing SQLite cache:
+New module `server/cache.py` — simple Python dict with timestamps, replacing SQLite cache:
 
 ```python
 _cache: dict[str, dict] = {}
@@ -189,13 +233,21 @@ Cache keys and TTLs:
 - `salary_api_players` — 30 minutes
 - Schedule — always live (no cache)
 
+**Tradeoff**: Cache is lost on deploy/restart (unlike SQLite). Acceptable because re-fetching from NHL API and salary API takes only a few seconds, and restarts are infrequent.
+
+### Error Handling
+
+- **Salary API unavailable**: Return a clear error to the frontend ("Salary data unavailable — check API connection"). Do not serve stale data or silently degrade. The optimizer cannot produce meaningful results without salary data.
+- **NHL API unavailable**: Same behavior as today — return cached data if within TTL, otherwise error.
+- **Admin scrape endpoints fail**: Return the error from the upstream API to the frontend for display.
+
 ### Dependencies
 
 **Remove from requirements.txt:**
 - `beautifulsoup4`
 - `lxml`
 - `pandas`
-- `numpy` (check if PuLP needs it — if not, remove)
+- `numpy`
 
 **Keep:**
 - `fastapi`, `uvicorn`
@@ -212,7 +264,7 @@ Cache keys and TTLs:
 
 - NHL API calls for stats, standings, schedule
 - PuLP optimizer logic (constraints, objective function, solver)
-- Goalie projection model
+- Goalie projection model (synthetic team-aggregate rows with pv=0)
 - Schedule strength multiplier calculations
 - Frontend: optimizer UI, lock/exclude, player browser, settings panel, theme toggle, auth, date picker, health indicator
 - Auth system (HMAC cookie, password login)
