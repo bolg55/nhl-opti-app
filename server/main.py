@@ -7,16 +7,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.auth import router as auth_router
-from server.database import init_db
+from server.routes.admin import router as admin_router
 from server.routes.optimizer import router as optimizer_router
-from server.routes.salary import router as salary_router
-from server.seed import seed_salary_data
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    seed_salary_data()
+    os.makedirs(os.environ.get("DATA_DIR", "data"), exist_ok=True)
     yield
 
 
@@ -34,7 +31,7 @@ app.add_middleware(
 # API routes
 app.include_router(auth_router)
 app.include_router(optimizer_router)
-app.include_router(salary_router)
+app.include_router(admin_router)
 
 # Static files (production: serve Vite build output)
 dist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")
