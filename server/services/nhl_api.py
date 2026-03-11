@@ -1,52 +1,26 @@
 import time
 import unicodedata
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-import numpy as np
-import pandas as pd
 import requests
 
+from server.cache import get_cached, set_cached
 from server.constants import ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, SEASON_INT
-from server.database import get_db, get_write_lock
+
+_CACHE_TTL = CACHE_HOURS * 3600
 
 
 def normalize_name(name: str) -> str:
     return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
 
 
-def is_cache_fresh(table_name: str) -> bool:
-    conn = get_db()
-    try:
-        row = conn.execute(
-            "SELECT updated_at FROM cache_metadata WHERE table_name = ?",
-            (table_name,),
-        ).fetchone()
-    finally:
-        conn.close()
-    if row is None:
-        return False
-    updated = datetime.fromisoformat(row[0])
-    if updated.tzinfo is None:
-        updated = updated.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - updated).total_seconds() < CACHE_HOURS * 3600
-
-
-def set_cache_timestamp(conn, table_name: str):
-    conn.execute(
-        "INSERT OR REPLACE INTO cache_metadata (table_name, updated_at) VALUES (?, ?)",
-        (table_name, datetime.now(timezone.utc).isoformat()),
-    )
-    conn.commit()
-
-
-def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> pd.DataFrame:
-    if not force_refresh and is_cache_fresh("player_stats"):
-        conn = get_db()
-        try:
-            return pd.read_sql("SELECT * FROM player_stats", conn)
-        finally:
-            conn.close()
+def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> list[dict]:
+    cache_key = "player_stats"
+    if not force_refresh:
+        cached = get_cached(cache_key, _CACHE_TTL)
+        if cached is not None:
+            return cached
 
     all_players = []
 
@@ -67,53 +41,35 @@ def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> pd.
             first = skater.get("firstName", {}).get("default", "")
             last = skater.get("lastName", {}).get("default", "")
             name = normalize_name(f"{first} {last}").strip()
-
             pos_code = skater.get("positionCode", "C")
             position = "D" if pos_code == "D" else "F"
-
             goals = skater.get("goals", 0)
             assists = skater.get("assists", 0)
-            shots = skater.get("shots", 0)
-            toi = skater.get("avgTimeOnIcePerGame", 0)
 
-            all_players.append(
-                {
-                    "player_name": name,
-                    "team": team,
-                    "position": position,
-                    "games_played": gp,
-                    "goals": goals,
-                    "assists": assists,
-                    "shots": shots,
-                    "avg_toi_seconds": toi,
-                    "goals_per_game": goals / gp,
-                    "assists_per_game": assists / gp,
-                }
-            )
+            all_players.append({
+                "playerId": skater.get("playerId"),
+                "player_name": name,
+                "team": team,
+                "position": position,
+                "games_played": gp,
+                "goals": goals,
+                "assists": assists,
+                "goals_per_game": goals / gp,
+                "assists_per_game": assists / gp,
+            })
 
         time.sleep(0.1)
 
-    df = pd.DataFrame(all_players)
-
-    with get_write_lock():
-        conn = get_db()
-        try:
-            conn.execute("DELETE FROM player_stats")
-            df.to_sql("player_stats", conn, if_exists="append", index=False)
-            set_cache_timestamp(conn, "player_stats")
-        finally:
-            conn.close()
-
-    return df
+    set_cached(cache_key, all_players)
+    return all_players
 
 
-def fetch_standings(force_refresh: bool = False) -> pd.DataFrame:
-    if not force_refresh and is_cache_fresh("standings"):
-        conn = get_db()
-        try:
-            return pd.read_sql("SELECT * FROM standings", conn)
-        finally:
-            conn.close()
+def fetch_standings(force_refresh: bool = False) -> list[dict]:
+    cache_key = "standings"
+    if not force_refresh:
+        cached = get_cached(cache_key, _CACHE_TTL)
+        if cached is not None:
+            return cached
 
     resp = requests.get(f"{NHL_API_BASE}/standings/now", timeout=10)
     resp.raise_for_status()
@@ -122,27 +78,15 @@ def fetch_standings(force_refresh: bool = False) -> pd.DataFrame:
     teams = []
     for entry in data.get("standings", []):
         abbrev = entry.get("teamAbbrev", {}).get("default", "")
-        name = entry.get("teamName", {}).get("default", "")
         pctg = entry.get("pointPctg", 0.5)
-        teams.append({"team": abbrev, "team_name": name, "point_pctg": pctg})
+        teams.append({"team": abbrev, "point_pctg": pctg})
 
-    df = pd.DataFrame(teams)
-
-    with get_write_lock():
-        conn = get_db()
-        try:
-            conn.execute("DELETE FROM standings")
-            df.to_sql("standings", conn, if_exists="append", index=False)
-            set_cache_timestamp(conn, "standings")
-        finally:
-            conn.close()
-
-    return df
+    set_cached(cache_key, teams)
+    return teams
 
 
 def fetch_weekly_schedule(start_date=None):
     if start_date is None:
-        # Use Eastern Time to align with NHL schedule dates
         start_date = datetime.now(ZoneInfo("America/New_York")).date()
     elif isinstance(start_date, str):
         start_date = date.fromisoformat(start_date)
@@ -174,9 +118,9 @@ def fetch_weekly_schedule(start_date=None):
 
 
 def calculate_multipliers(
-    standings_df: pd.DataFrame, opponents: dict[str, list[str]]
+    standings: list[dict], opponents: dict[str, list[str]]
 ) -> dict[str, float]:
-    pctg_lookup = dict(zip(standings_df["team"], standings_df["point_pctg"]))
+    pctg_lookup = {s["team"]: s["point_pctg"] for s in standings}
     multipliers = {}
 
     for team, opps in opponents.items():
@@ -184,6 +128,6 @@ def calculate_multipliers(
         for opp in opps:
             pctg = pctg_lookup.get(opp, 0.5)
             opp_mults.append(0.5 / pctg if pctg > 0 else 1.8)
-        multipliers[team] = float(np.mean(opp_mults)) if opp_mults else 1.0
+        multipliers[team] = sum(opp_mults) / len(opp_mults) if opp_mults else 1.0
 
     return multipliers
