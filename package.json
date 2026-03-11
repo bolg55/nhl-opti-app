@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": ".venv/bin/uvicorn server.main:app --reload --port 8000",
+    "dev:api": ".venv/bin/uvicorn server.main:app --reload --port 8000 --env-file .env",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
