@@ -88,7 +88,7 @@ def build_optimizer_input(
         if p["games_this_week"] <= 0:
             continue
         salary_info = salary_lookup.get(p["playerId"])
-        if salary_info is None:
+        if salary_info is None or salary_info["salary"] is None:
             continue  # No salary data — skip player
 
         injured = salary_info["injury"] is not None
