@@ -138,7 +138,7 @@ export function PlayerBrowser({
                               variant="destructive"
                               className="ml-2 text-[10px]"
                             >
-                              INJ
+                              {player.injuryDescription ?? "INJ"}
                             </Badge>
                           )}
                         </TableCell>

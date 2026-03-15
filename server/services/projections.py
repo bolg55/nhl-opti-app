@@ -91,7 +91,8 @@ def build_optimizer_input(
         if salary_info is None or salary_info["salary"] is None:
             continue  # No salary data — skip player
 
-        injured = salary_info["injury"] is not None
+        injury = salary_info["injury"]
+        injured = injury is not None
         position = _normalize_position(salary_info["position"])
 
         result.append({
@@ -105,6 +106,7 @@ def build_optimizer_input(
             "goals_per_game": p["goals_per_game"],
             "assists_per_game": p["assists_per_game"],
             "injured": injured,
+            "injury_description": injury["description"] if injured else None,
         })
 
     # 5. Add goalie rows

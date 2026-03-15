@@ -6,6 +6,7 @@ export interface Player {
   projFantasyPts: number
   salary: number
   injured: boolean
+  injuryDescription: string | null
 }
 
 export function playerKey(p: { name: string; team: string; position: string }): string {

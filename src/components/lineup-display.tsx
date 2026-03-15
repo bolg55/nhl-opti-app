@@ -132,7 +132,7 @@ export function LineupDisplay({
                         variant="destructive"
                         className="ml-2 text-[10px]"
                       >
-                        INJ
+                        {player.injuryDescription ?? "INJ"}
                       </Badge>
                     )}
                     {isGoalie && (

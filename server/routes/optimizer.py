@@ -159,6 +159,7 @@ def get_players():
             "projFantasyPts": round(float(p["proj_fantasy_pts"]), 2),
             "salary": round(float(p["pv"]), 2),
             "injured": bool(p.get("injured", False)),
+            "injuryDescription": p.get("injury_description"),
         })
 
     set_cached("api_players_formatted", formatted)
