@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from server.cache import get_cached, set_cached
-from server.constants import ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, SEASON_INT
+from server.constants import ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, PREVIOUS_SEASON_INT, SEASON_INT
 
 _CACHE_TTL = CACHE_HOURS * 3600
 
@@ -15,17 +15,11 @@ def normalize_name(name: str) -> str:
     return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
 
 
-def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> list[dict]:
-    cache_key = "player_stats"
-    if not force_refresh:
-        cached = get_cached(cache_key, _CACHE_TTL)
-        if cached is not None:
-            return cached
-
+def _fetch_player_stats_for_season(season: str, min_gp: int) -> list[dict]:
     all_players = []
 
     for team in ALL_TEAMS:
-        url = f"{NHL_API_BASE}/club-stats/{team}/{SEASON_INT}/2"
+        url = f"{NHL_API_BASE}/club-stats/{team}/{season}/2"
         try:
             resp = requests.get(url, timeout=10)
             resp.raise_for_status()
@@ -59,6 +53,23 @@ def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> lis
             })
 
         time.sleep(0.1)
+
+    return all_players
+
+
+def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> list[dict]:
+    cache_key = "player_stats"
+    if not force_refresh:
+        cached = get_cached(cache_key, _CACHE_TTL)
+        if cached is not None:
+            return cached
+
+    all_players = _fetch_player_stats_for_season(SEASON_INT, min_gp)
+
+    # New season hasn't started yet (no games played league-wide) — fall back
+    # to last season's final stats so the app still has data to work with.
+    if not all_players:
+        all_players = _fetch_player_stats_for_season(PREVIOUS_SEASON_INT, min_gp)
 
     set_cached(cache_key, all_players)
     return all_players

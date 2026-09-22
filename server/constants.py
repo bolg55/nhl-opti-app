@@ -4,6 +4,8 @@ from datetime import date
 today = date.today()
 SEASON_START_YEAR = today.year if today.month >= 9 else today.year - 1
 SEASON_INT = f"{SEASON_START_YEAR}{SEASON_START_YEAR + 1}"
+# Previous season, used as a fallback for stats before the new season has games played
+PREVIOUS_SEASON_INT = f"{SEASON_START_YEAR - 1}{SEASON_START_YEAR}"
 
 # All 32 NHL API team codes
 ALL_TEAMS = [
