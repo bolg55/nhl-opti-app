@@ -79,10 +79,34 @@ def build_optimizer_input(
     # 2. Build salary lookup by nhlId
     salary_lookup = {p["nhlId"]: p for p in salary_players}
 
-    # 3. Calculate projections for stats players
-    projected = calculate_projections(stats, games_count, multipliers)
+    # 3. Dedupe players traded mid-season: club-stats returns one row per team
+    # a player appeared for, so the same playerId can show up more than once.
+    # Keep the stint for their current team (per the salary source), falling
+    # back to whichever stint has the most games played. Also stamp every
+    # player's row with their current team (salary source is fresher than
+    # season stats — it also catches off-season trades, where last season's
+    # stats never show the new team at all) so this week's schedule/games
+    # get looked up for the team they'll actually play for.
+    stats_by_player: dict[int, list[dict]] = {}
+    for s in stats:
+        stats_by_player.setdefault(s["playerId"], []).append(s)
 
-    # 4. Join stats with salary on playerId == nhlId
+    deduped_stats = []
+    for player_id, entries in stats_by_player.items():
+        current_team = salary_lookup.get(player_id, {}).get("team")
+        if len(entries) == 1:
+            chosen = entries[0]
+        else:
+            match = next((e for e in entries if e["team"] == current_team), None)
+            chosen = match or max(entries, key=lambda e: e["games_played"])
+        if current_team:
+            chosen = {**chosen, "team": current_team}
+        deduped_stats.append(chosen)
+
+    # 4. Calculate projections for stats players
+    projected = calculate_projections(deduped_stats, games_count, multipliers)
+
+    # 5. Join stats with salary on playerId == nhlId
     result = []
     for p in projected:
         if p["games_this_week"] <= 0:
