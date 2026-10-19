@@ -4,11 +4,21 @@ import pytest
 
 from server.cache import clear_cache
 from server.constants import (
-    ALL_TEAMS, PREVIOUS_SEASON_INT, SEASON_INT, SHOOTING_PRIOR_SHOTS, STANDINGS_PRIOR_GAMES,
+    ALL_TEAMS, OLDER_SHOOTING_SEASONS, PREVIOUS_SEASON_INT, SEASON_INT, SHOOTING_PRIOR_SHOTS,
+    STANDINGS_PRIOR_GAMES,
 )
+from server.services import nhl_api
 from server.services.nhl_api import fetch_all_player_stats, fetch_standings
 
 EMPTY_RESPONSE = {"skaters": [], "goalies": []}
+
+
+@pytest.fixture(autouse=True)
+def _no_request_pacing():
+    nhl_api._completed_seasons.clear()
+    with patch("server.services.nhl_api.time.sleep"):
+        yield
+    nhl_api._completed_seasons.clear()
 
 PREVIOUS_SEASON_SKATER = {
     "playerId": 8477934,
@@ -59,19 +69,19 @@ def _skater(player_id, gp, goals=0, assists=0, shots=0, pos="C"):
     }
 
 
-def _fetch_with(current: dict, previous: dict, min_gp=10):
-    """current/previous map team abbrev -> list of skater payloads for that season."""
+def _fetch_with(current: dict, previous: dict, min_gp=10, older: dict | None = None):
+    """current/previous map team abbrev -> skater payloads; older maps season -> that same shape."""
     clear_cache()
+    seasons = [(SEASON_INT, current), (PREVIOUS_SEASON_INT, previous), *(older or {}).items()]
 
     def fake_get(url, timeout=10):
-        for season, by_team in ((SEASON_INT, current), (PREVIOUS_SEASON_INT, previous)):
+        for season, by_team in seasons:
             for team, skaters in by_team.items():
                 if url.endswith(f"/{team}/{season}/2"):
                     return _mock_response({"skaters": skaters, "goalies": []})
         return _mock_response(EMPTY_RESPONSE)
 
-    with patch("server.services.nhl_api.requests.get", side_effect=fake_get), \
-            patch("server.services.nhl_api.time.sleep"):
+    with patch("server.services.nhl_api.requests.get", side_effect=fake_get):
         return {p["playerId"]: p for p in fetch_all_player_stats(min_gp=min_gp, force_refresh=True)}
 
 
@@ -194,3 +204,60 @@ def test_points_pct_is_500_before_a_team_has_played():
 def test_bigger_samples_keep_more_of_their_record():
     pctg = _standings_with(("EARLY", 6, 0.25), ("LATE", 70, 0.25))
     assert pctg["EARLY"] > pctg["LATE"] > 0.25
+
+
+def test_older_seasons_count_toward_shooting_pct():
+    # The last two seasons say 10% (the league average here); two years before that,
+    # the player shot 20% on 300 shots, so his finishing should rate above average
+    k = SHOOTING_PRIOR_SHOTS
+    players = _fetch_with(
+        current={"EDM": [_skater(1, gp=10, goals=3, shots=30)]},
+        previous={"EDM": [_skater(1, gp=80, goals=20, shots=200)]},
+        older={OLDER_SHOOTING_SEASONS[0]: {"EDM": [_skater(1, gp=80, goals=60, shots=300)]}},
+    )
+
+    shooting_pct = (3 + 20 + 60 + 0.10 * k) / (30 + 200 + 300 + k)
+    assert players[1]["goals_per_game"] == pytest.approx(3.0 * shooting_pct)
+
+
+def _every_team_get(requested: list[str], failing_url: str | None = None):
+    """Fake NHL API where every team has one skater; records each URL requested."""
+    def fake_get(url, timeout=10):
+        requested.append(url)
+        if url == failing_url:
+            raise ConnectionError("rate limited")
+        return _mock_response({"skaters": [_skater(len(requested), gp=10, shots=10)], "goalies": []})
+    return fake_get
+
+
+def test_completed_seasons_are_fetched_once_across_refreshes():
+    requested: list[str] = []
+    with patch("server.services.nhl_api.requests.get", side_effect=_every_team_get(requested)):
+        fetch_all_player_stats(min_gp=10, force_refresh=True)
+        clear_cache()
+        requested.clear()
+        fetch_all_player_stats(min_gp=10, force_refresh=True)
+
+    assert requested
+    assert all(f"/{SEASON_INT}/" in url for url in requested)
+
+
+def test_a_partial_completed_season_is_fetched_again():
+    requested: list[str] = []
+    failing = f"https://api-web.nhle.com/v1/club-stats/EDM/{PREVIOUS_SEASON_INT}/2"
+    with patch("server.services.nhl_api.requests.get", side_effect=_every_team_get(requested, failing)):
+        fetch_all_player_stats(min_gp=10, force_refresh=True)
+        requested.clear()
+        fetch_all_player_stats(min_gp=10, force_refresh=True)
+
+    assert any(f"/{PREVIOUS_SEASON_INT}/" in url for url in requested)
+
+
+def test_seasons_before_utah_existed_request_arizona():
+    requested: list[str] = []
+    with patch("server.services.nhl_api.requests.get", side_effect=_every_team_get(requested)):
+        fetch_all_player_stats(min_gp=10, force_refresh=True)
+
+    assert any(url.endswith("/ARI/20232024/2") for url in requested)
+    assert not any(url.endswith("/UTA/20232024/2") for url in requested)
+    assert any(url.endswith("/UTA/20242025/2") for url in requested)

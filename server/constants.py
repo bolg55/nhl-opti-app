@@ -6,6 +6,8 @@ SEASON_START_YEAR = today.year if today.month >= 9 else today.year - 1
 SEASON_INT = f"{SEASON_START_YEAR}{SEASON_START_YEAR + 1}"
 # Previous season, used as a fallback for stats before the new season has games played
 PREVIOUS_SEASON_INT = f"{SEASON_START_YEAR - 1}{SEASON_START_YEAR}"
+# Two seasons before that, used only for shooting %, so one off year doesn't define a finisher
+OLDER_SHOOTING_SEASONS = [f"{y}{y + 1}" for y in (SEASON_START_YEAR - 2, SEASON_START_YEAR - 3)]
 
 # All 32 NHL API team codes
 ALL_TEAMS = [

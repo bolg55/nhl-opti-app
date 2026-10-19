@@ -7,21 +7,33 @@ import requests
 
 from server.cache import get_cached, set_cached
 from server.constants import (
-    ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, PREVIOUS_SEASON_INT, SEASON_INT, SHOOTING_PRIOR_SHOTS,
-    STANDINGS_PRIOR_GAMES,
+    ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, OLDER_SHOOTING_SEASONS, PREVIOUS_SEASON_INT, SEASON_INT,
+    SHOOTING_PRIOR_SHOTS, STANDINGS_PRIOR_GAMES,
 )
 
 _CACHE_TTL = CACHE_HOURS * 3600
+
+# Completed seasons never change, so they're kept for the life of the process instead of
+# in the shared cache, which refresh-data and settings changes wipe. Only complete
+# fetches (every team answered) are kept, so a rate-limited fetch is retried next time.
+_completed_seasons: dict[str, list[dict]] = {}
 
 
 def normalize_name(name: str) -> str:
     return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
 
 
+def _teams_for_season(season: str) -> list[str]:
+    # Utah's franchise was Arizona before 2024-25
+    if season < "20242025":
+        return ["ARI" if t == "UTA" else t for t in ALL_TEAMS]
+    return ALL_TEAMS
+
+
 def _fetch_player_stats_for_season(season: str) -> list[dict]:
     all_players = []
 
-    for team in ALL_TEAMS:
+    for team in _teams_for_season(season):
         url = f"{NHL_API_BASE}/club-stats/{team}/{season}/2"
         try:
             resp = requests.get(url, timeout=10)
@@ -64,12 +76,22 @@ def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> lis
             return cached
 
     current = _fetch_player_stats_for_season(SEASON_INT)
-    previous = _fetch_player_stats_for_season(PREVIOUS_SEASON_INT)
+    previous = _completed_season(PREVIOUS_SEASON_INT)
+    older = [row for season in OLDER_SHOOTING_SEASONS for row in _completed_season(season)]
     league_pct = _league_shooting_pct(previous or current)
-    all_players = _combine_seasons(current, previous, min_gp, league_pct)
+    all_players = _combine_seasons(current, previous, min_gp, league_pct, older)
 
     set_cached(cache_key, all_players)
     return all_players
+
+
+def _completed_season(season: str) -> list[dict]:
+    rows = _completed_seasons.get(season)
+    if rows is None:
+        rows = _fetch_player_stats_for_season(season)
+        if {r["team"] for r in rows} >= set(_teams_for_season(season)):
+            _completed_seasons[season] = rows
+    return rows
 
 
 def _league_shooting_pct(rows: list[dict]) -> dict[str, float]:
@@ -84,7 +106,7 @@ def _league_shooting_pct(rows: list[dict]) -> dict[str, float]:
 
 def _regressed_shooting_pct(rows: list[dict], league_pct: dict[str, float]) -> float:
     """
-    A player's goals per shot over both seasons, with SHOOTING_PRIOR_SHOTS shots at
+    A player's goals per shot over every season given, with SHOOTING_PRIOR_SHOTS shots at
     their position's league average mixed in. Shooting % is mostly luck over small
     samples (a 6-for-18 start is 33%), while shot volume settles quickly.
     """
@@ -95,7 +117,11 @@ def _regressed_shooting_pct(rows: list[dict], league_pct: dict[str, float]) -> f
 
 
 def _combine_seasons(
-    current: list[dict], previous: list[dict], min_gp: int, league_pct: dict[str, float]
+    current: list[dict],
+    previous: list[dict],
+    min_gp: int,
+    league_pct: dict[str, float],
+    older: list[dict] = (),
 ) -> list[dict]:
     """
     Players with min_gp games this season use this season's rates. Players short of
@@ -106,7 +132,8 @@ def _combine_seasons(
     few games are still excluded.
 
     Goals are projected as shots per game times a regressed shooting %, rather
-    than from raw goals per game.
+    than from raw goals per game. Shooting % also draws on the older seasons, which
+    affect nothing else.
     """
     threshold = max(min_gp, 1)
 
@@ -118,13 +145,18 @@ def _combine_seasons(
     for row in previous:
         previous_by_player.setdefault(row["playerId"], []).append(row)
 
+    older_by_player: dict[int, list[dict]] = {}
+    for row in older:
+        older_by_player.setdefault(row["playerId"], []).append(row)
+
     result = []
     for player_id in current_by_player.keys() | previous_by_player.keys():
         cur_rows = current_by_player.get(player_id, [])
         prev_rows = previous_by_player.get(player_id, [])
         cur_gp = sum(r["games_played"] for r in cur_rows)
         prev_gp = sum(r["games_played"] for r in prev_rows)
-        shooting_pct = _regressed_shooting_pct(cur_rows + prev_rows, league_pct)
+        shooting_rows = cur_rows + prev_rows + older_by_player.get(player_id, [])
+        shooting_pct = _regressed_shooting_pct(shooting_rows, league_pct)
 
         if cur_gp >= threshold:
             # Keep per-team stints; projections picks the current team's one
