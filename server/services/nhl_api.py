@@ -7,7 +7,8 @@ import requests
 
 from server.cache import get_cached, set_cached
 from server.constants import (
-    ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, PREVIOUS_SEASON_INT, SEASON_INT, STANDINGS_PRIOR_GAMES,
+    ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, PREVIOUS_SEASON_INT, SEASON_INT, SHOOTING_PRIOR_SHOTS,
+    STANDINGS_PRIOR_GAMES,
 )
 
 _CACHE_TTL = CACHE_HOURS * 3600
@@ -39,19 +40,15 @@ def _fetch_player_stats_for_season(season: str) -> list[dict]:
             name = normalize_name(f"{first} {last}").strip()
             pos_code = skater.get("positionCode", "C")
             position = "D" if pos_code == "D" else "F"
-            goals = skater.get("goals", 0)
-            assists = skater.get("assists", 0)
-
             all_players.append({
                 "playerId": skater.get("playerId"),
                 "player_name": name,
                 "team": team,
                 "position": position,
                 "games_played": gp,
-                "goals": goals,
-                "assists": assists,
-                "goals_per_game": goals / gp,
-                "assists_per_game": assists / gp,
+                "goals": skater.get("goals", 0),
+                "assists": skater.get("assists", 0),
+                "shots": skater.get("shots", 0),
             })
 
         time.sleep(0.1)
@@ -68,13 +65,38 @@ def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> lis
 
     current = _fetch_player_stats_for_season(SEASON_INT)
     previous = _fetch_player_stats_for_season(PREVIOUS_SEASON_INT)
-    all_players = _combine_seasons(current, previous, min_gp)
+    league_pct = _league_shooting_pct(previous or current)
+    all_players = _combine_seasons(current, previous, min_gp, league_pct)
 
     set_cached(cache_key, all_players)
     return all_players
 
 
-def _combine_seasons(current: list[dict], previous: list[dict], min_gp: int) -> list[dict]:
+def _league_shooting_pct(rows: list[dict]) -> dict[str, float]:
+    """Goals per shot by position ("F"/"D") across every skater in rows."""
+    totals: dict[str, list[int]] = {}
+    for r in rows:
+        t = totals.setdefault(r["position"], [0, 0])
+        t[0] += r["goals"]
+        t[1] += r["shots"]
+    return {pos: goals / shots for pos, (goals, shots) in totals.items() if shots > 0}
+
+
+def _regressed_shooting_pct(rows: list[dict], league_pct: dict[str, float]) -> float:
+    """
+    A player's goals per shot over both seasons, with SHOOTING_PRIOR_SHOTS shots at
+    their position's league average mixed in. Shooting % is mostly luck over small
+    samples (a 6-for-18 start is 33%), while shot volume settles quickly.
+    """
+    league = league_pct.get(rows[0]["position"], 0.0)
+    goals = sum(r["goals"] for r in rows)
+    shots = sum(r["shots"] for r in rows)
+    return (goals + league * SHOOTING_PRIOR_SHOTS) / (shots + SHOOTING_PRIOR_SHOTS)
+
+
+def _combine_seasons(
+    current: list[dict], previous: list[dict], min_gp: int, league_pct: dict[str, float]
+) -> list[dict]:
     """
     Players with min_gp games this season use this season's rates. Players short of
     it (early season, or back from injury) have last season's rates blended in,
@@ -82,6 +104,9 @@ def _combine_seasons(current: list[dict], previous: list[dict], min_gp: int) -> 
     is gone at min_gp. That also covers the pre-season, where everyone has 0 games.
     Last season only counts if it reached min_gp itself, so a call-up's hot first
     few games are still excluded.
+
+    Goals are projected as shots per game times a regressed shooting %, rather
+    than from raw goals per game.
     """
     threshold = max(min_gp, 1)
 
@@ -96,31 +121,44 @@ def _combine_seasons(current: list[dict], previous: list[dict], min_gp: int) -> 
     result = []
     for player_id in current_by_player.keys() | previous_by_player.keys():
         cur_rows = current_by_player.get(player_id, [])
+        prev_rows = previous_by_player.get(player_id, [])
         cur_gp = sum(r["games_played"] for r in cur_rows)
+        prev_gp = sum(r["games_played"] for r in prev_rows)
+        shooting_pct = _regressed_shooting_pct(cur_rows + prev_rows, league_pct)
+
         if cur_gp >= threshold:
             # Keep per-team stints; projections picks the current team's one
-            result.extend(cur_rows)
+            for r in cur_rows:
+                shots_pg = r["shots"] / r["games_played"]
+                result.append({
+                    **r,
+                    "shots_per_game": shots_pg,
+                    "goals_per_game": shots_pg * shooting_pct,
+                    "assists_per_game": r["assists"] / r["games_played"],
+                })
             continue
 
-        prev_rows = previous_by_player.get(player_id, [])
-        prev_gp = sum(r["games_played"] for r in prev_rows)
         if prev_gp < threshold:
             continue
 
-        cur_goals = sum(r["goals"] for r in cur_rows)
-        cur_assists = sum(r["assists"] for r in cur_rows)
-        prev_goals_pg = sum(r["goals"] for r in prev_rows) / prev_gp
-        prev_assists_pg = sum(r["assists"] for r in prev_rows) / prev_gp
         prior_games = threshold - cur_gp
 
+        def blended(stat: str) -> float:
+            cur = sum(r[stat] for r in cur_rows)
+            prev_per_game = sum(r[stat] for r in prev_rows) / prev_gp
+            return (cur + prev_per_game * prior_games) / threshold
+
+        shots_pg = blended("shots")
         base = max(cur_rows or prev_rows, key=lambda r: r["games_played"])
         result.append({
             **base,
             "games_played": cur_gp,
-            "goals": cur_goals,
-            "assists": cur_assists,
-            "goals_per_game": (cur_goals + prev_goals_pg * prior_games) / threshold,
-            "assists_per_game": (cur_assists + prev_assists_pg * prior_games) / threshold,
+            "goals": sum(r["goals"] for r in cur_rows),
+            "assists": sum(r["assists"] for r in cur_rows),
+            "shots": sum(r["shots"] for r in cur_rows),
+            "shots_per_game": shots_pg,
+            "goals_per_game": shots_pg * shooting_pct,
+            "assists_per_game": blended("assists"),
         })
 
     return result

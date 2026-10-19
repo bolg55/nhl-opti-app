@@ -32,6 +32,10 @@ DEFAULT_SETTINGS = {
 # the spread in points %, which works out to ~35 games. Higher = more conservative.
 STANDINGS_PRIOR_GAMES = 35
 
+# Shots of league-average shooting blended into every player's shooting %, which is
+# mostly luck over small samples. Estimated from 2025-26: ~190 for forwards, ~180 for D.
+SHOOTING_PRIOR_SHOTS = 180
+
 # Cache TTL in hours
 CACHE_HOURS = 12
 
