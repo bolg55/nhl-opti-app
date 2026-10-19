@@ -1,5 +1,5 @@
 fastapi
 uvicorn[standard]
 python-multipart
-pulp
+pulp==3.3.2
 requests
