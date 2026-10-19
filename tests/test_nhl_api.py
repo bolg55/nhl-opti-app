@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from server.cache import clear_cache
-from server.constants import ALL_TEAMS, PREVIOUS_SEASON_INT, SEASON_INT
-from server.services.nhl_api import fetch_all_player_stats
+from server.constants import ALL_TEAMS, PREVIOUS_SEASON_INT, SEASON_INT, STANDINGS_PRIOR_GAMES
+from server.services.nhl_api import fetch_all_player_stats, fetch_standings
 
 EMPTY_RESPONSE = {"skaters": [], "goalies": []}
 
@@ -145,3 +145,27 @@ def test_uses_current_season_stats_when_available():
 
     assert len(players) == 1
     assert players[0]["games_played"] == 5
+
+
+def _standings_with(*teams):
+    clear_cache()
+    payload = {"standings": [
+        {"teamAbbrev": {"default": t}, "gamesPlayed": gp, "pointPctg": pctg} for t, gp, pctg in teams
+    ]}
+    with patch("server.services.nhl_api.requests.get", return_value=_mock_response(payload)):
+        return {s["team"]: s["point_pctg"] for s in fetch_standings(force_refresh=True)}
+
+
+def test_early_season_points_pct_is_pulled_toward_500():
+    k = STANDINGS_PRIOR_GAMES
+    pctg = _standings_with(("LAK", 6, 1 / 6))
+    assert pctg["LAK"] == pytest.approx((1 / 6 * 6 + 0.5 * k) / (6 + k))
+
+
+def test_points_pct_is_500_before_a_team_has_played():
+    assert _standings_with(("LAK", 0, 0.0))["LAK"] == pytest.approx(0.5)
+
+
+def test_bigger_samples_keep_more_of_their_record():
+    pctg = _standings_with(("EARLY", 6, 0.25), ("LATE", 70, 0.25))
+    assert pctg["EARLY"] > pctg["LATE"] > 0.25

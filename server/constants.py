@@ -26,6 +26,12 @@ DEFAULT_SETTINGS = {
     "min_games_played": 10,
 }
 
+# Games of .500 hockey blended into every team's points %. Early-season records are
+# mostly noise (a 1-4-1 start is .167); this keeps opponent strength and goalie win odds
+# from swinging on a handful of games. Rough estimate: over 82 games, luck is about half
+# the spread in points %, which works out to ~35 games. Higher = more conservative.
+STANDINGS_PRIOR_GAMES = 35
+
 # Cache TTL in hours
 CACHE_HOURS = 12
 

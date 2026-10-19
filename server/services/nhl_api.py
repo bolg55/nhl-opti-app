@@ -6,7 +6,9 @@ from zoneinfo import ZoneInfo
 import requests
 
 from server.cache import get_cached, set_cached
-from server.constants import ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, PREVIOUS_SEASON_INT, SEASON_INT
+from server.constants import (
+    ALL_TEAMS, CACHE_HOURS, NHL_API_BASE, PREVIOUS_SEASON_INT, SEASON_INT, STANDINGS_PRIOR_GAMES,
+)
 
 _CACHE_TTL = CACHE_HOURS * 3600
 
@@ -135,11 +137,15 @@ def fetch_standings(force_refresh: bool = False) -> list[dict]:
     resp.raise_for_status()
     data = resp.json()
 
+    # point_pctg is regressed toward .500 by STANDINGS_PRIOR_GAMES, so a short-sample
+    # record can't dominate opponent multipliers or goalie win odds
     teams = []
     for entry in data.get("standings", []):
         abbrev = entry.get("teamAbbrev", {}).get("default", "")
+        gp = entry.get("gamesPlayed", 0)
         pctg = entry.get("pointPctg", 0.5)
-        teams.append({"team": abbrev, "point_pctg": pctg})
+        regressed = (pctg * gp + 0.5 * STANDINGS_PRIOR_GAMES) / (gp + STANDINGS_PRIOR_GAMES)
+        teams.append({"team": abbrev, "point_pctg": regressed, "games_played": gp})
 
     set_cached(cache_key, teams)
     return teams
