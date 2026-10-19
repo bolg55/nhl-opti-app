@@ -15,7 +15,7 @@ def normalize_name(name: str) -> str:
     return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
 
 
-def _fetch_player_stats_for_season(season: str, min_gp: int) -> list[dict]:
+def _fetch_player_stats_for_season(season: str) -> list[dict]:
     all_players = []
 
     for team in ALL_TEAMS:
@@ -29,7 +29,7 @@ def _fetch_player_stats_for_season(season: str, min_gp: int) -> list[dict]:
 
         for skater in data.get("skaters", []):
             gp = skater.get("gamesPlayed", 0)
-            if gp < min_gp:
+            if gp <= 0:
                 continue
 
             first = skater.get("firstName", {}).get("default", "")
@@ -64,15 +64,64 @@ def fetch_all_player_stats(min_gp: int = 10, force_refresh: bool = False) -> lis
         if cached is not None:
             return cached
 
-    all_players = _fetch_player_stats_for_season(SEASON_INT, min_gp)
-
-    # New season hasn't started yet (no games played league-wide) — fall back
-    # to last season's final stats so the app still has data to work with.
-    if not all_players:
-        all_players = _fetch_player_stats_for_season(PREVIOUS_SEASON_INT, min_gp)
+    current = _fetch_player_stats_for_season(SEASON_INT)
+    previous = _fetch_player_stats_for_season(PREVIOUS_SEASON_INT)
+    all_players = _combine_seasons(current, previous, min_gp)
 
     set_cached(cache_key, all_players)
     return all_players
+
+
+def _combine_seasons(current: list[dict], previous: list[dict], min_gp: int) -> list[dict]:
+    """
+    Players with min_gp games this season use this season's rates. Players short of
+    it (early season, or back from injury) have last season's rates blended in,
+    counted as the games they're missing, so its weight fades out as they play and
+    is gone at min_gp. That also covers the pre-season, where everyone has 0 games.
+    Last season only counts if it reached min_gp itself, so a call-up's hot first
+    few games are still excluded.
+    """
+    threshold = max(min_gp, 1)
+
+    current_by_player: dict[int, list[dict]] = {}
+    for row in current:
+        current_by_player.setdefault(row["playerId"], []).append(row)
+
+    previous_by_player: dict[int, list[dict]] = {}
+    for row in previous:
+        previous_by_player.setdefault(row["playerId"], []).append(row)
+
+    result = []
+    for player_id in current_by_player.keys() | previous_by_player.keys():
+        cur_rows = current_by_player.get(player_id, [])
+        cur_gp = sum(r["games_played"] for r in cur_rows)
+        if cur_gp >= threshold:
+            # Keep per-team stints; projections picks the current team's one
+            result.extend(cur_rows)
+            continue
+
+        prev_rows = previous_by_player.get(player_id, [])
+        prev_gp = sum(r["games_played"] for r in prev_rows)
+        if prev_gp < threshold:
+            continue
+
+        cur_goals = sum(r["goals"] for r in cur_rows)
+        cur_assists = sum(r["assists"] for r in cur_rows)
+        prev_goals_pg = sum(r["goals"] for r in prev_rows) / prev_gp
+        prev_assists_pg = sum(r["assists"] for r in prev_rows) / prev_gp
+        prior_games = threshold - cur_gp
+
+        base = max(cur_rows or prev_rows, key=lambda r: r["games_played"])
+        result.append({
+            **base,
+            "games_played": cur_gp,
+            "goals": cur_goals,
+            "assists": cur_assists,
+            "goals_per_game": (cur_goals + prev_goals_pg * prior_games) / threshold,
+            "assists_per_game": (cur_assists + prev_assists_pg * prior_games) / threshold,
+        })
+
+    return result
 
 
 def fetch_standings(force_refresh: bool = False) -> list[dict]:
